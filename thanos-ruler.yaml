@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: thanos-rule
+  name: thanos-rule
+  namespace: devops
+spec:
+  clusterIP: None
+  ports:
+  - name: grpc
+    port: 10901
+    targetPort: grpc
+  - name: http
+    port: 10902
+    targetPort: http
+  selector:
+    app.kubernetes.io/name: thanos-rule
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/name: thanos-rule
+  name: thanos-rule
+  namespace: devops
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: thanos-rule
+  serviceName: thanos-rule
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: thanos-rule
+    spec:
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0 
+      nodeSelector:
+        k8s-devops-arm: "true"
+      containers:
+      - args:
+        - rule
+        - --grpc-address=0.0.0.0:10901
+        - --http-address=0.0.0.0:10902
+        - --rule-file=/etc/thanos/rules/*rules.yaml
+        - --objstore.config-file=/etc/thanos/objectstorage.yaml
+        - --data-dir=/var/thanos/rule
+        - --label=rule_replica="$(NAME)"
+        - --alert.label-drop="rule_replica"
+        - --query=dnssrv+_http._tcp.thanos-query.devops.svc.cluster.local
+        env:
+        - name: NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        image: thanosio/thanos:v0.34.0
+        resources:
+          limits:
+            cpu: "128m"
+            memory: 256Mi
+          requests:
+            cpu: "10m"
+            memory: "50Mi"
+        livenessProbe:
+          failureThreshold: 24
+          httpGet:
+            path: /-/healthy
+            port: 10902
+            scheme: HTTP
+          periodSeconds: 5
+        name: thanos-rule
+        ports:
+        - containerPort: 10901
+          name: grpc
+        - containerPort: 10902
+          name: http
+        readinessProbe:
+          failureThreshold: 18
+          httpGet:
+            path: /-/ready
+            port: 10902
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        terminationMessagePolicy: FallbackToLogsOnError
+        volumeMounts:
+        - mountPath: /var/thanos/rule
+          name: data
+          readOnly: false
+        - name: thanos-objectstorage
+          subPath: objectstorage.yaml
+          mountPath: /etc/thanos/objectstorage.yaml
+        - name: thanos-rules
+          mountPath: /etc/thanos/rules
+      volumes:
+      - name: thanos-objectstorage
+        secret:
+          secretName: thanos-objectstorage
+      - name: thanos-rules
+        configMap:
+          name: thanos-rules
+  volumeClaimTemplates:
+  - metadata: 
+      labels:
+        app.kubernetes.io/name: prometheus
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+      volumeMode: Filesystem
+      storageClassName: efs-devops-sc
+      # storageClassName: caspian-kafka-ebs-sc

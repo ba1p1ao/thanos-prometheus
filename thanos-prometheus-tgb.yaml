@@ -1,0 +1,10 @@
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  namespace: devops
+  name: prometheus-tg
+spec:
+  serviceRef:
+    name: thanos-query
+    port: 9090
+  targetGroupARN: arn:aws:elasticloadbalancing:us-east-1:744330249173:targetgroup/prometheus-test-tg/d0de967d28ee00d7
